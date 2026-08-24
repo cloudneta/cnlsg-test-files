@@ -1,0 +1,2 @@
+2026-08-24 10:15:23 ERROR [S3Client] AccessDenied - AKIAIOSFODNN7EXAMPLE
+botocore.exceptions.ClientError: An error occurred (AccessDenied) when calling PutObject
