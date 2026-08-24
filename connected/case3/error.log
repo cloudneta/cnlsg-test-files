@@ -1,2 +1,13 @@
+2026-08-24 10:15:23 INFO [upload.py] Starting S3 upload job: batch_id=20260824-1015
+2026-08-24 10:15:23 DEBUG [botocore.credentials] Found credentials in environment variables.
+2026-08-24 10:15:23 DEBUG [botocore.client] Using AWS access key AKIAIOSFODNN7EXAMPLE for request
 2026-08-24 10:15:23 ERROR [S3Client] AccessDenied - AKIAIOSFODNN7EXAMPLE
-botocore.exceptions.ClientError: An error occurred (AccessDenied) when calling PutObject
+Traceback (most recent call last):
+  File "upload.py", line 42, in <module>
+    s3.upload_file(local_path, bucket, key)
+  File "/usr/lib/python3.11/site-packages/botocore/client.py", line 553, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+  File "/usr/lib/python3.11/site-packages/botocore/client.py", line 1009, in _make_api_call
+    raise error_class(parsed_response, operation_name)
+botocore.exceptions.ClientError: An error occurred (AccessDenied) when calling the PutObject operation: Access Denied
+2026-08-24 10:15:23 ERROR [upload.py] Job failed: batch_id=20260824-1015
