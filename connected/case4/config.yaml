@@ -1,0 +1,22 @@
+model_list:
+  - model_name: claude
+    litellm_params:
+      model: bedrock/global.anthropic.claude-sonnet-4-6
+      aws_region_name: ap-northeast-2
+
+general_settings:
+  master_key: "sk-cnlsg-baseline-changeme"
+
+guardrails:
+  - guardrail_name: block-large-request
+    litellm_params:
+      guardrail: custom_code
+      mode: pre_call
+      default_on: true
+      custom_code: |
+        def apply_guardrail(inputs, request_data, input_type):
+            MAX_CHARS = 4000
+            for text in inputs["texts"]:
+                if len(text) > MAX_CHARS:
+                    return block(f"Request too large: exceeds {MAX_CHARS} char limit")
+            return allow()
