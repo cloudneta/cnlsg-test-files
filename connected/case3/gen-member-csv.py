@@ -79,11 +79,11 @@ def main():
     rows = gen_rows(10)
 
     write_csv(
-        "membership-data.csv",
+        "member-data.csv",
         rows
     )
 
-    print("generated: membership-data.csv")
+    print("generated: member-data.csv")
 
 
 if __name__ == "__main__":
