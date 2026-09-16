@@ -89,12 +89,12 @@ class InputAuditLogger(CustomLogger):
 audit_logger = InputAuditLogger()
 PY
 
-# Audit Logger를 CN-LITELLM으로 전송
+# Audit Logger 파일 전송
 sshpass -p "${LITELLM_PASS}" \
 scp /tmp/audit_logger.py \
 ${LITELLM_USER}@${LITELLM_HOST}:/tmp/audit_logger.py
 
-# Audit Logger 배치
+# Audit Logger 배치 및 컨테이너 반영
 sshpass -p "${LITELLM_PASS}" \
 ssh ${LITELLM_USER}@${LITELLM_HOST} \
 "sudo mv /tmp/audit_logger.py /opt/litellm/audit_logger.py && \
