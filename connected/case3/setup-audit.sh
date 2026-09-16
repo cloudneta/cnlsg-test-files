@@ -1,11 +1,12 @@
 #!/bin/bash
 set -e
 
-LITELLM_DIR="/opt/litellm"
-CONTAINER="litellm"
-CONFIG="${LITELLM_DIR}/config.yaml"
+LITELLM_HOST="192.168.1.101"
+LITELLM_USER="ec2-user"
+LITELLM_PASS="qwer1234!!"
 
-cat <<'PY' | sudo tee ${LITELLM_DIR}/audit_logger.py > /dev/null
+# LiteLLM Input/Output Audit Logger 생성
+cat > /tmp/audit_logger.py <<'PY'
 import json
 import re
 from datetime import datetime, timezone
@@ -60,20 +61,24 @@ class InputAuditLogger(CustomLogger):
                 if not isinstance(item, dict):
                     continue
 
+                # 실제 사용자 입력
                 if item.get("type") == "text":
                     text = item.get("text")
 
                     if not isinstance(text, str):
                         continue
 
+                    # Claude Code Session Title 생성 요청 제외
                     if "<session>" in text:
                         continue
 
+                    # Claude Code 내부 System Reminder 제외
                     text = self._clean_user_text(text)
 
                     if text:
                         self._write_audit("user", text)
 
+                # Claude Code가 Tool로 읽은 실제 데이터
                 elif item.get("type") == "tool_result":
                     text = item.get("content")
 
@@ -84,21 +89,30 @@ class InputAuditLogger(CustomLogger):
 audit_logger = InputAuditLogger()
 PY
 
-sudo docker cp \
-  ${LITELLM_DIR}/audit_logger.py \
-  ${CONTAINER}:/app/audit_logger.py
+# Audit Logger를 CN-LITELLM으로 전송
+sshpass -p "${LITELLM_PASS}" \
+scp /tmp/audit_logger.py \
+${LITELLM_USER}@${LITELLM_HOST}:/tmp/audit_logger.py
 
-if ! grep -q "callbacks: audit_logger.audit_logger" "${CONFIG}"; then
-  sudo tee -a "${CONFIG}" > /dev/null <<'YAML'
+# Audit Logger 배치
+sshpass -p "${LITELLM_PASS}" \
+ssh ${LITELLM_USER}@${LITELLM_HOST} \
+"sudo mv /tmp/audit_logger.py /opt/litellm/audit_logger.py && \
+sudo docker cp /opt/litellm/audit_logger.py litellm:/app/audit_logger.py"
+
+# LiteLLM Audit Callback 설정
+sshpass -p "${LITELLM_PASS}" \
+ssh ${LITELLM_USER}@${LITELLM_HOST} \
+"sudo tee -a /opt/litellm/config.yaml > /dev/null <<'YAML'
 
 litellm_settings:
   callbacks: audit_logger.audit_logger
 YAML
-fi
+sudo docker exec litellm rm -f /app/llm-input-audit.jsonl
+sudo docker restart litellm > /dev/null"
 
-sudo docker exec ${CONTAINER} \
-  rm -f /app/llm-input-audit.jsonl
+# CN-ADMIN 임시 파일 삭제
+rm -f /tmp/audit_logger.py
 
-sudo docker restart ${CONTAINER} > /dev/null
-
+echo
 echo "LiteLLM Input/Output Audit enabled."
