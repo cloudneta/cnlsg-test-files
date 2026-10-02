@@ -5,16 +5,17 @@ LITELLM_HOST="192.168.1.101"
 LITELLM_USER="ec2-user"
 LITELLM_PASS="qwer1234!!"
 
-echo "[1/4] Titan Embeddings V2 호출 확인"
+echo "[1/4] CN-LITELLM에서 Titan Embeddings V2 호출 확인"
 
-aws bedrock-runtime invoke-model \
-  --model-id amazon.titan-embed-text-v2:0 \
-  --body '{"inputText":"semantic guard test"}' \
-  --region ap-northeast-2 \
-  --cli-binary-format raw-in-base64-out \
-  /tmp/titan-test.json >/dev/null
-
-jq '{dimensions,inputTextTokenCount}' /tmp/titan-test.json
+sshpass -p "${LITELLM_PASS}" ssh \
+  "${LITELLM_USER}@${LITELLM_HOST}" \
+  "aws bedrock-runtime invoke-model \
+    --model-id amazon.titan-embed-text-v2:0 \
+    --body '{\"inputText\":\"semantic guard test\"}' \
+    --region ap-northeast-2 \
+    --cli-binary-format raw-in-base64-out \
+    /tmp/titan-test.json >/dev/null && \
+   cat /tmp/titan-test.json | jq '{dimensions,inputTextTokenCount}'"
 
 
 echo "[2/4] Claude Code Input Normalizer 생성"
