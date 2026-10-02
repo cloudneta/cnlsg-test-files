@@ -4,6 +4,7 @@ set -e
 LITELLM_HOST="192.168.1.101"
 LITELLM_USER="ec2-user"
 LITELLM_PASS="qwer1234!!"
+LITELLM_IMAGE="ghcr.io/berriai/litellm:v1.103.0"
 
 echo "[1/4] CN-LITELLM에서 Titan Embeddings V2 호출 확인"
 
@@ -64,6 +65,8 @@ class ClaudeCodeInputNormalizer(CustomGuardrail):
 
                 text = block.get("text", "").strip()
 
+                # Claude Code가 삽입한 컨텍스트는
+                # Semantic Route 비교 대상에서 제외
                 if text.startswith("<system-reminder>"):
                     continue
 
@@ -133,7 +136,18 @@ sshpass -p "${LITELLM_PASS}" ssh \
   "${LITELLM_USER}@${LITELLM_HOST}" \
   "sudo cp /tmp/case4_normalizer.py /opt/litellm/case4_normalizer.py && \
    sudo cp /tmp/config.yaml /opt/litellm/config.yaml && \
-   sudo docker restart litellm"
+   sudo docker rm -f litellm 2>/dev/null || true
+
+   sudo docker run -d \
+     --name litellm \
+     --restart unless-stopped \
+     -p 4000:4000 \
+     -v /opt/litellm/config.yaml:/app/config.yaml \
+     -v /opt/litellm/case4_guardrail.py:/app/case4_guardrail.py \
+     -v /opt/litellm/case4_normalizer.py:/app/case4_normalizer.py \
+     ${LITELLM_IMAGE} \
+     --config /app/config.yaml \
+     --port 4000"
 
 echo
 echo "Case 4 Semantic Guard applied."
