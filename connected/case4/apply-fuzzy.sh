@@ -4,6 +4,7 @@ set -e
 LITELLM_HOST="192.168.1.101"
 LITELLM_USER="ec2-user"
 LITELLM_PASS="qwer1234!!"
+LITELLM_IMAGE="ghcr.io/berriai/litellm:v1.103.0"
 
 cat > /tmp/case4_guardrail.py <<'PY'
 import re
@@ -148,9 +149,18 @@ sshpass -p "${LITELLM_PASS}" scp \
   "${LITELLM_USER}@${LITELLM_HOST}:/tmp/config.yaml"
 
 sshpass -p "${LITELLM_PASS}" ssh \
-  "${LITELLM_USER}@${LITELLM_HOST}" \
-  "sudo cp /tmp/case4_guardrail.py /opt/litellm/case4_guardrail.py && \
-   sudo cp /tmp/config.yaml /opt/litellm/config.yaml && \
-   sudo docker restart litellm"
+"${LITELLM_USER}@${LITELLM_HOST}" \
+"sudo cp /tmp/case4_guardrail.py /opt/litellm/case4_guardrail.py && \
+sudo cp /tmp/config.yaml /opt/litellm/config.yaml && \
+sudo docker rm -f litellm 2>/dev/null || true
+sudo docker run -d \
+  --name litellm \
+  --restart unless-stopped \
+  -p 4000:4000 \
+  -v /opt/litellm/config.yaml:/app/config.yaml \
+  -v /opt/litellm/case4_guardrail.py:/app/case4_guardrail.py \
+  ${LITELLM_IMAGE} \
+  --config /app/config.yaml \
+  --port 4000"
 
 echo "Case 4 Fuzzy Guardrail applied."
