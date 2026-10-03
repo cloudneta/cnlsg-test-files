@@ -6,6 +6,36 @@ LITELLM_USER="ec2-user"
 LITELLM_PASS="qwer1234!!"
 LITELLM_IMAGE="ghcr.io/berriai/litellm:v1.103.0"
 
+echo "[0/4] Semantic Guard용 Titan Embeddings 권한 반영"
+
+cat > /tmp/deny-unauthorized-model.json <<'JSON'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyUnauthorizedModels",
+      "Effect": "Deny",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream",
+        "bedrock:Converse",
+        "bedrock:ConverseStream"
+      ],
+      "NotResource": [
+        "arn:aws:bedrock:ap-northeast-2:891377396078:inference-profile/global.anthropic.claude-sonnet-4-6",
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6",
+        "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0"
+      ]
+    }
+  ]
+}
+JSON
+
+aws iam put-role-policy \
+  --role-name cnlsg-cn-litellm-role \
+  --policy-name deny-unauthorized-model \
+  --policy-document file:///tmp/deny-unauthorized-model.json
+
 echo "[1/4] CN-LITELLM에서 Titan Embeddings V2 호출 확인"
 
 sshpass -p "${LITELLM_PASS}" ssh \
