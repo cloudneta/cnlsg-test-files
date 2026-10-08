@@ -24,7 +24,7 @@ cat > /tmp/deny-unauthorized-model.json <<'JSON'
       "NotResource": [
         "arn:aws:bedrock:ap-northeast-2:891377396078:inference-profile/global.anthropic.claude-sonnet-4-6",
         "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6",
-        "arn:aws:bedrock:*::foundation-model/amazon.titan-embed-text-v2:0"
+        "arn:aws:bedrock:ap-northeast-2::foundation-model/amazon.titan-embed-text-v2:0"
       ]
     }
   ]
@@ -36,17 +36,32 @@ aws iam put-role-policy \
   --policy-name deny-unauthorized-model \
   --policy-document file:///tmp/deny-unauthorized-model.json
 
+# IAM 변경 사항이 실제 호출에 반영될 때까지 확인
+for i in {1..10}; do
+  if sshpass -p "${LITELLM_PASS}" ssh \
+    "${LITELLM_USER}@${LITELLM_HOST}" \
+    "aws bedrock-runtime invoke-model \
+      --model-id amazon.titan-embed-text-v2:0 \
+      --body '{\"inputText\":\"semantic guard test\"}' \
+      --region ap-northeast-2 \
+      --cli-binary-format raw-in-base64-out \
+      /tmp/titan-test.json >/dev/null 2>&1"; then
+    break
+  fi
+
+  if [ "$i" -eq 10 ]; then
+    echo "ERROR: Titan Embeddings V2 호출 권한 반영 실패"
+    exit 1
+  fi
+
+  sleep 3
+done
+
 echo "[1/4] CN-LITELLM에서 Titan Embeddings V2 호출 확인"
 
 sshpass -p "${LITELLM_PASS}" ssh \
   "${LITELLM_USER}@${LITELLM_HOST}" \
-  "aws bedrock-runtime invoke-model \
-    --model-id amazon.titan-embed-text-v2:0 \
-    --body '{\"inputText\":\"semantic guard test\"}' \
-    --region ap-northeast-2 \
-    --cli-binary-format raw-in-base64-out \
-    /tmp/titan-test.json >/dev/null && \
-   cat /tmp/titan-test.json | jq '{dimensions,inputTextTokenCount}'"
+  "cat /tmp/titan-test.json | jq '{inputTextTokenCount}'"
 
 
 echo "[2/4] Claude Code Input Normalizer 생성"
