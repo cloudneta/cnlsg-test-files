@@ -3,6 +3,7 @@
 QUERY="$*"
 
 curl -sG 'http://10.10.1.103:8080/search' \
+  -H 'X-Knowledge-Key: cnlsg-user-key' \
   --data-urlencode "q=${QUERY}" |
 jq -r '
   "=== RAG RETRIEVAL RANKING ===",
