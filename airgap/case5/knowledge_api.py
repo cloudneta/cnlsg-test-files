@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
 DOCS_DIR = "/opt/knowledge/docs"
+HOST = "0.0.0.0"
 PORT = 8080
 
 
@@ -30,60 +31,74 @@ def load_documents():
 
         documents.append({
             "name": filename,
-            "content": content,
-            "tokens": tokenize(content)
+            "content": content
         })
 
     return documents
 
 
 def tfidf_search(query, documents):
-    query_tokens = tokenize(query)
-
-    if not query_tokens or not documents:
+    if not documents:
         return []
+
+    query_tokens = tokenize(query)
+    query_tf = Counter(query_tokens)
+
+    document_tokens = [
+        tokenize(doc["content"])
+        for doc in documents
+    ]
+
+    document_tf = [
+        Counter(tokens)
+        for tokens in document_tokens
+    ]
+
+    all_terms = set(query_tokens)
+
+    for tokens in document_tokens:
+        all_terms.update(tokens)
 
     document_count = len(documents)
 
-    document_frequency = Counter()
+    df = {}
 
-    for doc in documents:
-        for token in set(doc["tokens"]):
-            document_frequency[token] += 1
+    for term in all_terms:
+        df[term] = sum(
+            1 for tokens in document_tokens
+            if term in tokens
+        )
 
-    def idf(token):
-        return math.log((document_count + 1) /
-                        (document_frequency.get(token, 0) + 1)) + 1
-
-    query_tf = Counter(query_tokens)
-    query_vector = {
-        token: count * idf(token)
-        for token, count in query_tf.items()
+    idf = {
+        term: math.log((document_count + 1) / (df[term] + 1)) + 1
+        for term in all_terms
     }
+
+    query_vector = {
+        term: query_tf[term] * idf[term]
+        for term in query_tf
+    }
+
+    query_norm = math.sqrt(
+        sum(value * value for value in query_vector.values())
+    )
 
     results = []
 
-    for doc in documents:
-        doc_tf = Counter(doc["tokens"])
-
+    for doc, tf in zip(documents, document_tf):
         doc_vector = {
-            token: count * idf(token)
-            for token, count in doc_tf.items()
+            term: tf[term] * idf[term]
+            for term in tf
+            if term in idf
         }
-
-        common_tokens = set(query_vector) & set(doc_vector)
-
-        dot_product = sum(
-            query_vector[token] * doc_vector[token]
-            for token in common_tokens
-        )
-
-        query_norm = math.sqrt(
-            sum(value * value for value in query_vector.values())
-        )
 
         doc_norm = math.sqrt(
             sum(value * value for value in doc_vector.values())
+        )
+
+        dot_product = sum(
+            query_vector.get(term, 0) * doc_vector.get(term, 0)
+            for term in query_vector
         )
 
         if query_norm == 0 or doc_norm == 0:
@@ -97,7 +112,10 @@ def tfidf_search(query, documents):
             "content": doc["content"]
         })
 
-    results.sort(key=lambda x: x["score"], reverse=True)
+    results.sort(
+        key=lambda item: item["score"],
+        reverse=True
+    )
 
     return results
 
@@ -112,22 +130,51 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
             return
 
         params = parse_qs(parsed.query)
-        query = params.get("q", [""])[0]
+        query = params.get("q", [""])[0].strip()
+
+        if not query:
+            self.send_error(400, "Missing query")
+            return
 
         documents = load_documents()
-        results = tfidf_search(query, documents)
 
-        result = results[0] if results and results[0]["score"] > 0 else None
+        # Vulnerable state:
+        # 모든 Knowledge가 사용자 권한과 관계없이 Retrieval 후보가 된다.
+        allowed_documents = documents
+
+        results = tfidf_search(query, allowed_documents)
+
+        result = (
+            results[0]
+            if results and results[0]["score"] > 0
+            else None
+        )
+
+        ranking = [
+            {
+                "document": item["document"],
+                "score": item["score"]
+            }
+            for item in results
+        ]
 
         body = json.dumps({
             "query": query,
+            "ranking": ranking,
             "result": result
         }, ensure_ascii=False, indent=2).encode("utf-8")
 
         self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header(
+            "Content-Type",
+            "application/json; charset=utf-8"
+        )
+        self.send_header(
+            "Content-Length",
+            str(len(body))
+        )
         self.end_headers()
+
         self.wfile.write(body)
 
     def log_message(self, format, *args):
@@ -135,5 +182,11 @@ class KnowledgeHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"Knowledge API listening on 0.0.0.0:{PORT}")
-    HTTPServer(("0.0.0.0", PORT), KnowledgeHandler).serve_forever()
+    server = HTTPServer((HOST, PORT), KnowledgeHandler)
+
+    print(
+        f"Knowledge API listening on "
+        f"http://{HOST}:{PORT}"
+    )
+
+    server.serve_forever()
