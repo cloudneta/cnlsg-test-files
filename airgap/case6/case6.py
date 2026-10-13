@@ -216,19 +216,71 @@ def dashboard():
     panels=[]
     for n,title,filename,y,h in [(1,'Request Audit','request-audit.sql',0,14),(2,'Tool Audit','tool-audit.sql',14,10)]:
         source={'type':ds['type'],'uid':uid}
-        panels.append({'id':n,'title':title,'type':'table','gridPos':{'x':0,'y':y,'w':24,'h':h},'datasource':source,'targets':[{'refId':'A','datasource':source,'format':'table','rawQuery':True,'editorMode':'code','rawSql':(HERE/filename).read_text()}],'options':{'showHeader':True,'cellHeight':'sm'},'fieldConfig':{'defaults':{},'overrides':[{'matcher':{'id':'byName','options':'request_id'},'properties':[{'id':'links','value':[{'title':'Find request in Tempo','url':link('{ span.gen_ai.response.id = "${__value.raw}" }','traceql')}]}]}]}})
+        panels.append({'id':n,'title':title,'type':'table','gridPos':{'x':0,'y':y,'w':24,'h':h},'datasource':source,'targets':[{'refId':'A','datasource':source,'format':'table','rawQuery':True,'editorMode':'code','rawSql':(HERE/filename).read_text()}],'options':{'showHeader':True,'cellHeight':'sm'},'fieldConfig':{'defaults':{},'overrides':[{'matcher':{'id':'byName','options':'request_id'},'properties':[{'id':'links','value':[{'title':'Find request in Tempo','url':link('{ span.gen_ai.response.id = "${__value.raw}" }','traceql')},{'title':'View Full Audit','url':'/d/airgap-llm-request-detail?var-request_id=${__value.raw}'}]}]}]}})
     source={'type':'tempo','uid':'cnlsg-tempo'}
-    panels.append({'id':3,'title':'Trace Overview','type':'table','gridPos':{'x':0,'y':24,'w':24,'h':10},'datasource':source,'targets':[{'refId':'A','datasource':source,'queryType':'traceql','query':'{ rootName = "POST /v1/messages" }','limit':100}],'transformations':[{'id':'organize','options':{'excludeByName':{'nested':True},'indexByName':{'startTime':0,'traceID':1,'traceService':2,'traceName':3,'traceDuration':4},'renameByName':{'startTime':'Time','traceID':'Trace ID','traceService':'Service','traceName':'Operation','traceDuration':'Duration'}}}],'fieldConfig':{'defaults':{},'overrides':[{'matcher':{'id':'byName','options':'Trace ID'},'properties':[{'id':'links','value':[{'title':'View Trace in Tempo','url':link('${__value.raw}','traceId')}]}]},{'matcher':{'id':'byName','options':'Duration'},'properties':[{'id':'unit','value':'ms'}]}]},'options':{'showHeader':True,'cellHeight':'sm'}})
+    panels.append({'id':3,'title':'Error Traces','type':'table','gridPos':{'x':0,'y':24,'w':24,'h':10},'datasource':source,'targets':[{'refId':'A','datasource':source,'queryType':'traceql','query':'{ rootName = "POST /v1/chat/completions" && status = error }','limit':100}],'transformations':[{'id':'organize','options':{'excludeByName':{'nested':True},'indexByName':{'startTime':0,'traceID':1,'traceService':2,'traceName':3,'traceDuration':4},'renameByName':{'startTime':'Time','traceID':'Trace ID','traceService':'Service','traceName':'Operation','traceDuration':'Duration'}}}],'fieldConfig':{'defaults':{},'overrides':[{'matcher':{'id':'byName','options':'Trace ID'},'properties':[{'id':'links','value':[{'title':'View Trace in Tempo','url':link('${__value.raw}','traceId')}]}]},{'matcher':{'id':'byName','options':'Duration'},'properties':[{'id':'unit','value':'ms'}]}]},'options':{'showHeader':True,'cellHeight':'sm'}})
     # Validate queries before writing dashboard; empty datasets are valid.
     for panel in panels:
         result=api('POST','/api/ds/query',{'from':'now-24h','to':'now','queries':panel['targets']})
         for value in result.get('results',{}).values():
             if value.get('error') or value.get('status',200)>=400:raise RuntimeError(panel['title']+': '+str(value))
         assert result.get('results'),'No query results returned'
+    # Detail dashboard: original text is retrieved from PostgreSQL, not the 150-char preview.
+    detail_uid='airgap-llm-request-detail'
+    detail_source={'type':ds['type'],'uid':'cnlsg-postgres'}
+    detail_sql = """SELECT
+  s."startTime" AS time,
+  s.request_id,
+  (
+    SELECT CASE
+      WHEN jsonb_typeof(m.value->'content') = 'string'
+        THEN m.value->>'content'
+      WHEN jsonb_typeof(m.value->'content') = 'array'
+        THEN (
+          SELECT string_agg(b.value->>'text', E'\\n' ORDER BY b.seq)
+          FROM jsonb_array_elements(m.value->'content') WITH ORDINALITY AS b(value,seq)
+          WHERE b.value->>'type' = 'text'
+            AND b.value->>'text' NOT LIKE '<system-reminder>%'
+        )
+      END
+    FROM jsonb_array_elements(
+      CASE WHEN jsonb_typeof(s.proxy_server_request->'messages') = 'array'
+           THEN s.proxy_server_request->'messages' ELSE '[]'::jsonb END
+    ) WITH ORDINALITY AS m(value,seq)
+    WHERE m.value->>'role' = 'user'
+    ORDER BY m.seq DESC LIMIT 1
+  ) AS full_user_prompt,
+  s.response #>> '{choices,0,message,content}' AS full_llm_response
+FROM "LiteLLM_SpendLogs" s
+WHERE s.request_id = ${request_id:sqlstring}
+ORDER BY s."startTime" DESC LIMIT 1"""
+    detail_panel={'id':1,'title':'Full Prompt & Response','type':'table',
+      'gridPos':{'x':0,'y':0,'w':24,'h':18},'datasource':detail_source,
+      'targets':[{'refId':'A','datasource':detail_source,'format':'table',
+                  'rawQuery':True,'editorMode':'code','rawSql':detail_sql}],
+      'options':{'showHeader':True,'cellHeight':'lg'},
+      'fieldConfig':{'defaults':{},'overrides':[
+        {'matcher':{'id':'byName','options':'full_user_prompt'},
+         'properties':[{'id':'custom.cellOptions','value':{'type':'auto','wrapText':True}}]},
+        {'matcher':{'id':'byName','options':'full_llm_response'},
+         'properties':[{'id':'custom.cellOptions','value':{'type':'auto','wrapText':True}}]}]}}
+    existing_detail=get('/api/dashboards/uid/'+detail_uid)
+    if existing_detail and existing_detail.get('meta',{}).get('provisioned'):
+        raise RuntimeError('Detail dashboard is provisioned')
+    detail=copy.deepcopy(existing_detail['dashboard']) if existing_detail else {
+      'uid':detail_uid,'title':'Air-Gap LLM Request Detail','tags':['CNLSG','Air-Gap'],
+      'timezone':'browser','schemaVersion':41,'version':0,'time':{'from':'now-24h','to':'now'}}
+    detail['templating']={'list':[{'name':'request_id','type':'textbox','label':'Request ID',
+      'query':'','current':{'text':'','value':''},'hide':2,'skipUrlSync':False}]}
+    detail['panels']=[detail_panel]
+    # URL var-request_id supplies the selected request; Grafana safely SQL-quotes it.
+    api('POST','/api/dashboards/db',{'dashboard':detail,
+      'folderUid':existing_detail['meta'].get('folderUid','') if existing_detail else '',
+      'overwrite':True,'message':'CNLSG Full Audit request detail'})
     uid='airgap-llm-audit-trace'; old=get('/api/dashboards/uid/'+uid)
     d=copy.deepcopy(old['dashboard']) if old else {'uid':uid,'title':'Air-Gap LLM Audit & Trace','tags':['CNLSG','Air-Gap'],'timezone':'browser','schemaVersion':41,'version':0,'time':{'from':'now-24h','to':'now'},'refresh':'30s','panels':[]}
     if old and old.get('meta',{}).get('provisioned'):raise RuntimeError('Dashboard is provisioned; review its provider')
-    others=[p for p in d['panels'] if p['title'] not in ['Request Audit','Tool Audit','Trace Overview']]
+    others=[p for p in d['panels'] if p['title'] not in ['Request Audit','Tool Audit','Trace Overview','Error Traces']]
     assert not any(p['id'] in (1,2,3) for p in others),'Panel ID collision'
     if d['panels']==panels+others:print('Dashboard already configured');return
     if old:
