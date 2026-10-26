@@ -100,7 +100,7 @@ def tracing():
     assert run('hostname')=='INTERNAL-LITELLM','Run on INTERNAL-LITELLM'
     c=inspect('litellm'); cfgpath=pathlib.Path('/opt/litellm/config.yaml'); alloy=pathlib.Path('/etc/alloy/config.alloy')
     # Guard exact baseline so custom container options are never silently discarded.
-    assert c['Config']['Image']=='ghcr.io/berriai/litellm:v1.98.0'
+    assert c['Config']['Image']=='ghcr.io/berriai/litellm:v1.103.0'
     assert c['HostConfig']['NetworkMode']=='litellm-network'
     assert c['Config']['Cmd']==['--config','/app/config.yaml','--port','4000']
     assert len(c['Mounts'])==1 and c['Mounts'][0]['Source']==str(cfgpath) and c['Mounts'][0]['Destination']=='/app/config.yaml'
