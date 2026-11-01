@@ -4,7 +4,7 @@ set -e
 LITELLM_HOST="192.168.1.101"
 LITELLM_USER="ec2-user"
 LITELLM_PASS="qwer1234!!"
-LITELLM_IMAGE="ghcr.io/berriai/litellm:v1.103.0"
+LITELLM_IMAGE="ghcr.io/berriai/litellm:v1.106.6"
 
 echo "[0/4] Semantic Guard용 Titan Embeddings 권한 반영"
 
